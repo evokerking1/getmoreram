@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import StosSign_API_NoCertificate
 import StosSign_Auth
 
@@ -18,6 +19,9 @@ struct SettingsView: View {
     
     @State private var errorShow = false
     @State private var errorInfo = ""
+    @State private var importResultShow = false
+    @State private var importResultInfo = ""
+    @State private var isImportingSideStoreAccount = false
     
 
     var body: some View {
@@ -39,6 +43,10 @@ struct SettingsView: View {
                     Button("Sign in") {
                         viewModel.loginModalShow = true
                     }
+                    
+                    Button("Import SideStore Account") {
+                        isImportingSideStoreAccount = true
+                    }
                 }
             } header: {
                 Text("Account")
@@ -58,7 +66,7 @@ struct SettingsView: View {
                     cleanUp()
                 }
             } footer: {
-                Text("If something went wrong during signing in, please try to clean up the keychain, repoen the app and try again.")
+                Text("If something went wrong during signing in, please try to clean up the keychain, repoen the app and try again. \n \nIf you use SideStore and are already signed in, please also try exporting SideStore Account from SideStore settings and import it here to sign in.")
             }
         }
         .alert("Error", isPresented: $errorShow){
@@ -67,9 +75,25 @@ struct SettingsView: View {
         } message: {
             Text(errorInfo)
         }
+        .alert("SideStore Account", isPresented: $importResultShow){
+            Button("OK".loc, action: {
+            })
+        } message: {
+            Text(importResultInfo)
+        }
+        .fileImporter(
+            isPresented: $isImportingSideStoreAccount,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            importSideStoreAccount(result)
+        }
         
         .sheet(isPresented: $viewModel.loginModalShow) {
             loginModal
+        }
+        .sheet(isPresented: $viewModel.teamSelectionShow) {
+            teamSelectionView
         }
     }
     
@@ -129,6 +153,35 @@ struct SettingsView: View {
         }
     }
     
+    var teamSelectionView: some View {
+        NavigationView {
+            List {
+                ForEach(Array(viewModel.availableTeams.enumerated()), id: \.offset) { _, team in
+                    Button {
+                        selectTeam(team)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(team.name)
+                                .foregroundStyle(.primary)
+                            Text("\(team.identifier) · \(teamTypeDescription(team.type))")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Choose Team")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel", role: .cancel) {
+                        cancelTeamSelection()
+                    }
+                }
+            }
+        }
+    }
+    
     func loginButtonClicked() async {
         do {
             if viewModel.needVerificationCode {
@@ -138,13 +191,19 @@ struct SettingsView: View {
             
             let result = try await viewModel.authenticate()
             if result {
-                viewModel.loginModalShow = false
-                email = sharedModel.account!.appleID
-                teamId = sharedModel.team!.identifier
+                await MainActor.run {
+                    viewModel.loginModalShow = false
+                    email = sharedModel.account!.appleID
+                    teamId = ""
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                await MainActor.run {
+                    viewModel.teamSelectionShow = true
+                }
             }
             
         } catch {
-            errorInfo = error.localizedDescription
+            errorInfo = error.detailedDescription
             errorShow = true
         }
     }
@@ -154,6 +213,82 @@ struct SettingsView: View {
         Keychain.shared.identifier = nil
         Keychain.shared.appleIDPassword = nil
         Keychain.shared.appleIDEmailAddress = nil
+        AnisetteDataHelper.shared.resetClientInfo()
+        sharedModel.session = nil
+        sharedModel.account = nil
+        sharedModel.team = nil
+        sharedModel.isLogin = false
+        viewModel.availableTeams = []
+        viewModel.teamSelectionShow = false
+        email = ""
+        teamId = ""
+    }
+    
+    func importSideStoreAccount(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else {
+                throw "No file selected."
+            }
+            
+            let didStartAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            
+            let data = try Data(contentsOf: url)
+            let account = try SideStoreAccountImporter.importAccount(from: data)
+            
+            viewModel.appleID = account.email
+            viewModel.password = account.password
+            sharedModel.session = nil
+            sharedModel.account = nil
+            sharedModel.team = nil
+            sharedModel.isLogin = false
+            viewModel.availableTeams = []
+            viewModel.teamSelectionShow = false
+            email = account.email
+            teamId = ""
+            importResultInfo = "Imported \(account.email).\nTap \"Sign In\" to continue."
+            importResultShow = true
+        } catch {
+            errorInfo = error.detailedDescription
+            errorShow = true
+        }
+    }
+    
+    func selectTeam(_ team: Team) {
+        sharedModel.team = team
+        sharedModel.isLogin = true
+        email = sharedModel.account?.appleID ?? email
+        teamId = team.identifier
+        viewModel.availableTeams = []
+        viewModel.teamSelectionShow = false
+    }
+    
+    func cancelTeamSelection() {
+        viewModel.availableTeams = []
+        viewModel.teamSelectionShow = false
+        sharedModel.session = nil
+        sharedModel.account = nil
+        sharedModel.team = nil
+        sharedModel.isLogin = false
+        email = ""
+        teamId = ""
+    }
+    
+    func teamTypeDescription(_ type: TeamType) -> String {
+        switch type {
+        case .free:
+            return "Free"
+        case .individual:
+            return "Individual"
+        case .organization:
+            return "Organization"
+        case .unknown:
+            return "Unknown"
+        }
     }
     
 }

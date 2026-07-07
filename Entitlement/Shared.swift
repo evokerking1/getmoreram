@@ -90,10 +90,48 @@ class SharedModel: ObservableObject {
     
     init() {
         AnisetteDataHelper.shared.url = URL(string: anisetteServerURL)
+        AppleAPI.shared.anisetteDataProvider = {
+            AnisetteDataHelper.shared.url = URL(string: self.anisetteServerURL)
+            return try await AnisetteDataHelper.shared.getAnisetteData(refresh: true)
+        }
     }
 }
 
 class DataManager {
     static let shared = DataManager()
     let model = SharedModel()
+}
+
+extension Error {
+    var detailedDescription: String {
+        let localizedError = self as? LocalizedError
+        var lines: [String] = []
+        
+        if let description = localizedError?.errorDescription, !description.isEmpty {
+            lines.append(description)
+        } else {
+            let nsError = self as NSError
+            lines.append(nsError.localizedDescription)
+        }
+        
+        if let failureReason = localizedError?.failureReason, !failureReason.isEmpty {
+            lines.append("Reason: \(failureReason)")
+        }
+        
+        if let recoverySuggestion = localizedError?.recoverySuggestion, !recoverySuggestion.isEmpty {
+            lines.append("Suggestion: \(recoverySuggestion)")
+        }
+        
+        let nsError = self as NSError
+        if nsError.domain != NSCocoaErrorDomain || nsError.code != 0 {
+            lines.append("Domain: \(nsError.domain)")
+            lines.append("Code: \(nsError.code)")
+        }
+        
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            lines.append("Underlying: \(underlying.detailedDescription)")
+        }
+        
+        return lines.joined(separator: "\n")
+    }
 }

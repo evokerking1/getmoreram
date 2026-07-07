@@ -14,8 +14,10 @@ class LoginViewModel: ObservableObject {
     @Published var needVerificationCode = false
     @Published var verificationCode = ""
     @Published var loginModalShow = false
+    @Published var teamSelectionShow = false
     @Published var isLoginInProgress = false
     @Published var logs = ""
+    @Published var availableTeams: [Team] = []
     
     private var verificationCodeHandler: ((String?) -> Void)?
     
@@ -68,25 +70,23 @@ class LoginViewModel: ObservableObject {
         Keychain.shared.appleIDEmailAddress = self.appleID
         Keychain.shared.appleIDPassword = self.password
         
-        let team = try await fetchTeam(for: account, session: session)
-        logging(text: "Successfully fetched team")
-        DataManager.shared.model.team = team
-        
-        Task{ await MainActor.run {
-            DataManager.shared.model.isLogin = true
-        }}
+        let teams = try await fetchTeams(for: account, session: session)
+        logging(text: "Successfully fetched teams")
+        await MainActor.run {
+            availableTeams = teams
+        }
         
         return true
     }
     
-    func fetchTeam(for account: Account, session: AppleAPISession) async throws -> Team
+    func fetchTeams(for account: Account, session: AppleAPISession) async throws -> [Team]
     {
 
         let fetchedTeams = try await AppleAPI.shared.fetchTeamsForAccount(account: account, session: session)
-        guard !fetchedTeams.isEmpty, let team = fetchedTeams.first else {
+        guard !fetchedTeams.isEmpty else {
             throw "Unable to Fetch Team!"
         }
         
-        return team
+        return fetchedTeams
     }
 }

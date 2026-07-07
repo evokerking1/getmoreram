@@ -30,6 +30,14 @@ final class AnisetteDataHelper
     static var shared: AnisetteDataHelper = AnisetteDataHelper()
     
     var loggingFunc: ((String)->Void)?
+    
+    func resetClientInfo() {
+        clientInfo = nil
+        userAgent = nil
+        mdLu = nil
+        deviceId = nil
+    }
+    
     func getAnisetteData(refresh: Bool = false) async throws -> AnisetteData
     {
         

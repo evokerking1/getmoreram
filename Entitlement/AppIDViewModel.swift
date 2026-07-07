@@ -31,6 +31,8 @@ class AppIDModel : ObservableObject, Hashable {
             throw "Please Login First"
         }
 
+        try await AppleAPI.shared.refreshAnisetteDataIfNeeded(for: session)
+        
         let dateFormatter = ISO8601DateFormatter()
         let httpHeaders = [
             "Content-Type": "application/vnd.api+json",
@@ -57,10 +59,16 @@ class AppIDModel : ObservableObject, Hashable {
         request.allHTTPHeaderFields = httpHeaders
         request.httpBody = "{\"data\":{\"relationships\":{\"bundleIdCapabilities\":{\"data\":[{\"relationships\":{\"capability\":{\"data\":{\"id\":\"INCREASED_MEMORY_LIMIT\",\"type\":\"capabilities\"}}},\"type\":\"bundleIdCapabilities\",\"attributes\":{\"settings\":[],\"enabled\":true}}]}},\"id\":\"\(appID.identifier)\",\"attributes\":{\"hasExclusiveManagedCapabilities\":false,\"teamId\":\"\(team.identifier)\",\"bundleType\":\"bundle\",\"identifier\":\"\(appID.bundleIdentifier)\",\"seedId\":\"\(team.identifier)\",\"name\":\"\(appID.name)\"},\"type\":\"bundleIds\"}}".data(using: .utf8)
         
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let responseString = String(data: data, encoding: .utf8) ?? "Unable to decode response."
+        
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200..<300).contains(httpResponse.statusCode) {
+            throw "Apple API request failed with HTTP \(httpResponse.statusCode).\n\(responseString)"
+        }
         
         await MainActor.run {
-            result = String(data: data, encoding: .utf8) ?? "Unable to decode response."
+            result = responseString
         }
         
     }
@@ -75,19 +83,9 @@ class AppIDViewModel : ObservableObject {
             throw "Please Login First"
         }
         
-        let ids = try await withUnsafeThrowingContinuation { (c: UnsafeContinuation<[AppID], Error>) in
-            AppleAPI.shared.fetchAppIDsForTeam(team: team, session: session) { (appIDs, error) in
-                if let error = appIDs as? Error {
-                    c.resume(throwing: error)
-                }
-                guard let appIDs else {
-                    c.resume(throwing: "AppIDs is nil. Please try again or reopen the app.")
-                    return
-                }
-                c.resume(returning: appIDs)
-            }
-        }
+        let ids = try await AppleAPI.shared.fetchAppIDsForTeam(team: team, session: session)
         await MainActor.run {
+            appIDs.removeAll()
             for id in ids {
                 appIDs.append(AppIDModel(appID: id))
             }

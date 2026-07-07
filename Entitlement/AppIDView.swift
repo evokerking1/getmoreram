@@ -43,7 +43,7 @@ struct AppIDEditView : View {
         do {
             try await viewModel.addIncreasedMemory()
         } catch {
-            errorInfo = error.localizedDescription
+            errorInfo = error.detailedDescription
             errorShow = true
         }
 
@@ -92,7 +92,7 @@ struct AppIDView : View {
         do {
             try await viewModel.fetchAppIDs()
         } catch {
-            errorInfo = error.localizedDescription
+            errorInfo = error.detailedDescription
             errorShow = true
         }
     }
