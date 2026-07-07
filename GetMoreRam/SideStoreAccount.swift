@@ -1,6 +1,6 @@
 //
 //  SideStoreAccount.swift
-//  Entitlement
+//  GetMoreRam
 //
 //  Created by Codex on 2026/7/7.
 //

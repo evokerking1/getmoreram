@@ -1,6 +1,6 @@
 //
-//  EntitlementApp.swift
-//  Entitlement
+//  GetMoreRamApp.swift
+//  GetMoreRam
 //
 //  Created by s s on 2025/3/14.
 //
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct EntitlementApp: App {
+struct GetMoreRamApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

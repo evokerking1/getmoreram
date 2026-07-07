@@ -1,5 +1,5 @@
 {
-  "originHash" : "1a80be29def0451f8996685d7fb5bcf2468fdd459b98f36d3efd116626c14773",
+  "originHash" : "09f2d403ef43c7e620f89c45b6b5c6b5b3b36043dc408f598687554383a009a3",
   "pins" : [
     {
       "identity" : "big-num",
@@ -15,8 +15,26 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift",
       "state" : {
-        "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
-        "version" : "1.9.0"
+        "revision" : "f2a627b84c1ff96f21ac2fcb623ab36142dd5512",
+        "version" : "1.10.0"
+      }
+    },
+    {
+      "identity" : "stossign",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hugeBlack/StosSign",
+      "state" : {
+        "branch" : "main",
+        "revision" : "69397b49fc8a1bd87ce8f65cc0b403831f838735"
+      }
+    },
+    {
+      "identity" : "swift-asn1",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-asn1.git",
+      "state" : {
+        "revision" : "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
+        "version" : "1.7.1"
       }
     },
     {
@@ -24,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto",
       "state" : {
-        "revision" : "476538ccb827f2dd18efc5de754cc87d77127a47",
-        "version" : "4.4.0"
+        "revision" : "1b6b2e274e85105bfa155183145a1dcfd63331f1",
+        "version" : "4.5.0"
       }
     },
     {
