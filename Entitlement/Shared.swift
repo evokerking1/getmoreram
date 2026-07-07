@@ -5,7 +5,8 @@
 //  Created by s s on 2025/3/15.
 //
 import SwiftUI
-import StosSign
+import StosSign_API_NoCertificate
+import StosSign_Auth
 
 class AlertHelper<T> : ObservableObject {
     @Published var show = false

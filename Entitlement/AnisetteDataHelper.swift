@@ -7,14 +7,13 @@
 //
 
 import Foundation
-import CommonCrypto
-import Starscream
-import KeychainAccess
-import StosSign
+import CryptoKit
+import StosSign_API_NoCertificate
+import StosSign_Auth
 
-final class AnisetteDataHelper: WebSocketDelegate
+final class AnisetteDataHelper
 {
-    var socket: WebSocket!
+    var socket: URLSessionWebSocketTask?
     
     var url: URL?
     var startProvisioningURL: URL?
@@ -27,8 +26,6 @@ final class AnisetteDataHelper: WebSocketDelegate
     var deviceId: String?
     
     var menuAnisetteURL: String?
-    
-    private var wsContinuation: UnsafeContinuation<(), Error>?
     
     static var shared: AnisetteDataHelper = AnisetteDataHelper()
     
@@ -163,126 +160,146 @@ final class AnisetteDataHelper: WebSocketDelegate
     }
     
     func startProvisioningSession() async throws -> AnisetteData {
-        let provisioningSessionURL = self.url!.appendingPathComponent("v3").appendingPathComponent("provisioning_session")
+        let provisioningSessionURL = self.webSocketURL(from: self.url!.appendingPathComponent("v3").appendingPathComponent("provisioning_session"))
         var wsRequest = URLRequest(url: provisioningSessionURL)
         wsRequest.timeoutInterval = 5
-        self.socket = WebSocket(request: wsRequest)
-        self.socket.delegate = self
-        self.socket.connect()
-        try await withUnsafeThrowingContinuation { c in
-            wsContinuation = c
-        }
+        let socket = URLSession.shared.webSocketTask(with: wsRequest)
+        self.socket = socket
+        socket.resume()
+        try await self.receiveProvisioningMessages(from: socket)
         return try await self.fetchAnisetteV3(Keychain.shared.identifier!, Keychain.shared.adiPb!)
     }
-    
-    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
-        switch event {
-        case .text(let string):
-            do {
-                if let json = try JSONSerialization.jsonObject(with: string.data(using: .utf8)!, options: []) as? [String: Any] {
-                    guard let result = json["result"] as? String else {
-                        self.printOut("The server didn't give us a result")
-                        client.disconnect(closeCode: 0)
-                        wsContinuation?.resume(throwing: "The server didn't give us a result")
-                        return
-                    }
-                    self.printOut("Received result: \(result)")
-                    switch result {
-                    case "GiveIdentifier":
-                        self.printOut("Giving identifier")
-                        client.json(["identifier": Keychain.shared.identifier!])
-                        
-                    case "GiveStartProvisioningData":
-                        self.printOut("Getting start provisioning data")
-                        let body = [
-                            "Header": [String: Any](),
-                            "Request": [String: Any](),
-                        ]
-                        var request = self.buildAppleRequest(url: self.startProvisioningURL!)
-                        request.httpMethod = "POST"
-                        request.httpBody = try! PropertyListSerialization.data(fromPropertyList: body, format: .xml, options: 0)
-                        URLSession.shared.dataTask(with: request) { data, response, error in
-                            if let data = data,
-                               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? Dictionary<String, Dictionary<String, Any>>,
-                               let spim = plist["Response"]?["spim"] as? String {
-                                self.printOut("Giving start provisioning data")
-                                client.json(["spim": spim])
-                            } else {
-                                self.printOut("Apple didn't give valid start provisioning data! Got response: \(String(data: data ?? Data("nothing".utf8), encoding: .utf8) ?? "not utf8")")
-                                client.disconnect(closeCode: 0)
-                                self.wsContinuation?.resume(throwing: "Apple didn't give valid start provisioning data. Please try again later")
-                            }
-                        }.resume()
-                        
-                    case "GiveEndProvisioningData":
-                        self.printOut("Getting end provisioning data")
-                        guard let cpim = json["cpim"] as? String else {
-                            self.printOut("The server didn't give us a cpim")
-                            client.disconnect(closeCode: 0)
-                            self.wsContinuation?.resume(throwing: "The server didn't give us a cpim")
-                            return
-                        }
-                        let body = [
-                            "Header": [String: Any](),
-                            "Request": [
-                                "cpim": cpim,
-                            ],
-                        ]
-                        var request = self.buildAppleRequest(url: self.endProvisioningURL!)
-                        request.httpMethod = "POST"
-                        request.httpBody = try! PropertyListSerialization.data(fromPropertyList: body, format: .xml, options: 0)
-                        URLSession.shared.dataTask(with: request) { data, response, error in
-                            if let data = data,
-                               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? Dictionary<String, Dictionary<String, Any>>,
-                               let ptm = plist["Response"]?["ptm"] as? String,
-                               let tk = plist["Response"]?["tk"] as? String {
-                                self.printOut("Giving end provisioning data")
-                                client.json(["ptm": ptm, "tk": tk])
-                            } else {
-                                self.printOut("Apple didn't give valid end provisioning data! Got response: \(String(data: data ?? Data("nothing".utf8), encoding: .utf8) ?? "not utf8")")
-                                client.disconnect(closeCode: 0)
-                                self.wsContinuation?.resume(throwing: "Apple didn't give valid end provisioning data. Please try again later")
-                            }
-                        }.resume()
-                        
-                    case "ProvisioningSuccess":
-                        self.printOut("Provisioning succeeded!")
-                        client.disconnect(closeCode: 0)
-                        guard let adiPb = json["adi_pb"] as? String else {
-                            self.printOut("The server didn't give us an adi.pb file")
-                            self.wsContinuation?.resume(throwing: "The server didn't give us an adi.pb file")
-                            return
-                        }
-                        Keychain.shared.adiPb = adiPb
-                        wsContinuation?.resume()
-                        
-                    default:
-                        if result.contains("Error") || result.contains("Invalid") || result == "ClosingPerRequest" || result == "Timeout" || result == "TextOnly" {
-                            self.printOut("Failing because of \(result)")
-                            self.wsContinuation?.resume(throwing: result + (json["message"] as? String ?? ""))
-                        }
-                    }
-                }
-            } catch let error as NSError {
-                self.printOut("Failed to handle text: \(error.localizedDescription)")
-                self.wsContinuation?.resume(throwing: error)
+
+    private func receiveProvisioningMessages(from socket: URLSessionWebSocketTask) async throws {
+        self.printOut("Connected")
+        defer {
+            socket.cancel(with: .normalClosure, reason: nil)
+            if self.socket === socket {
+                self.socket = nil
             }
+        }
+        
+        while true {
+            let message = try await socket.receive()
+            switch message {
+            case .string(let string):
+                if try await handleProvisioningMessage(string, socket: socket) {
+                    return
+                }
+            case .data:
+                throw "The server sent binary data instead of text"
+            @unknown default:
+                throw "The server sent an unknown WebSocket message"
+            }
+        }
+    }
+    
+    private func handleProvisioningMessage(_ string: String, socket: URLSessionWebSocketTask) async throws -> Bool {
+        guard let data = string.data(using: .utf8),
+              let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw "The server didn't give valid JSON"
+        }
+        
+        guard let result = json["result"] as? String else {
+            self.printOut("The server didn't give us a result")
+            throw "The server didn't give us a result"
+        }
+        
+        self.printOut("Received result: \(result)")
+        switch result {
+        case "GiveIdentifier":
+            self.printOut("Giving identifier")
+            try await socket.sendJSON(["identifier": Keychain.shared.identifier!])
             
-        case .connected:
-            self.printOut("Connected")
+        case "GiveStartProvisioningData":
+            self.printOut("Getting start provisioning data")
+            let spim = try await self.fetchStartProvisioningData()
+            self.printOut("Giving start provisioning data")
+            try await socket.sendJSON(["spim": spim])
             
-        case .disconnected(let string, let code):
-            self.printOut("Disconnected: \(code); \(string)")
+        case "GiveEndProvisioningData":
+            self.printOut("Getting end provisioning data")
+            guard let cpim = json["cpim"] as? String else {
+                self.printOut("The server didn't give us a cpim")
+                throw "The server didn't give us a cpim"
+            }
+            let endProvisioningData = try await self.fetchEndProvisioningData(cpim: cpim)
+            self.printOut("Giving end provisioning data")
+            try await socket.sendJSON(endProvisioningData)
             
-        case .peerClosed:
-            self.printOut("PeerClosed")
-            
-        case .error(let error):
-            self.printOut("Got error: \(String(describing: error))")
+        case "ProvisioningSuccess":
+            self.printOut("Provisioning succeeded!")
+            guard let adiPb = json["adi_pb"] as? String else {
+                self.printOut("The server didn't give us an adi.pb file")
+                throw "The server didn't give us an adi.pb file"
+            }
+            Keychain.shared.adiPb = adiPb
+            return true
             
         default:
-            self.printOut("Unknown event: \(event)")
+            if result.contains("Error") || result.contains("Invalid") || result == "ClosingPerRequest" || result == "Timeout" || result == "TextOnly" {
+                self.printOut("Failing because of \(result)")
+                throw result + (json["message"] as? String ?? "")
+            }
         }
+        
+        return false
+    }
+    
+    private func fetchStartProvisioningData() async throws -> String {
+        let body = [
+            "Header": [String: Any](),
+            "Request": [String: Any](),
+        ]
+        var request = self.buildAppleRequest(url: self.startProvisioningURL!)
+        request.httpMethod = "POST"
+        request.httpBody = try PropertyListSerialization.data(fromPropertyList: body, format: .xml, options: 0)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? Dictionary<String, Dictionary<String, Any>>,
+           let spim = plist["Response"]?["spim"] as? String {
+            return spim
+        } else {
+            self.printOut("Apple didn't give valid start provisioning data! Got response: \(String(data: data, encoding: .utf8) ?? "not utf8")")
+            throw "Apple didn't give valid start provisioning data. Please try again later"
+        }
+    }
+    
+    private func fetchEndProvisioningData(cpim: String) async throws -> [String: String] {
+        let body = [
+            "Header": [String: Any](),
+            "Request": [
+                "cpim": cpim,
+            ],
+        ]
+        var request = self.buildAppleRequest(url: self.endProvisioningURL!)
+        request.httpMethod = "POST"
+        request.httpBody = try PropertyListSerialization.data(fromPropertyList: body, format: .xml, options: 0)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? Dictionary<String, Dictionary<String, Any>>,
+           let ptm = plist["Response"]?["ptm"] as? String,
+           let tk = plist["Response"]?["tk"] as? String {
+            return ["ptm": ptm, "tk": tk]
+        } else {
+            self.printOut("Apple didn't give valid end provisioning data! Got response: \(String(data: data, encoding: .utf8) ?? "not utf8")")
+            throw "Apple didn't give valid end provisioning data. Please try again later"
+        }
+    }
+    
+    private func webSocketURL(from url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        
+        switch components.scheme {
+        case "https":
+            components.scheme = "wss"
+        case "http":
+            components.scheme = "ws"
+        default:
+            break
+        }
+        
+        return components.url ?? url
     }
     
     func buildAppleRequest(url: URL) -> URLRequest {
@@ -394,21 +411,17 @@ final class AnisetteDataHelper: WebSocketDelegate
     }
 }
 
-extension WebSocketClient {
-    func json(_ dictionary: [String: String]) {
-        let data = try! JSONSerialization.data(withJSONObject: dictionary, options: [])
-        self.write(string: String(data: data, encoding: .utf8)!)
+extension URLSessionWebSocketTask {
+    func sendJSON(_ dictionary: [String: String]) async throws {
+        let data = try JSONSerialization.data(withJSONObject: dictionary, options: [])
+        try await self.send(.string(String(data: data, encoding: .utf8)!))
     }
 }
 
 extension Data {
     // https://stackoverflow.com/a/25391020
     func sha256() -> Data {
-        var hash = [UInt8](repeating: 0,  count: Int(CC_SHA256_DIGEST_LENGTH))
-        self.withUnsafeBytes {
-            _ = CC_SHA256($0.baseAddress, CC_LONG(self.count), &hash)
-        }
-        return Data(hash)
+        Data(SHA256.hash(data: self))
     }
     
     // https://stackoverflow.com/a/40089462

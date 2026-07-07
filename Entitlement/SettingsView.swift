@@ -6,7 +6,8 @@
 //
 
 import SwiftUI
-import StosSign
+import StosSign_API_NoCertificate
+import StosSign_Auth
 
 struct SettingsView: View {
 

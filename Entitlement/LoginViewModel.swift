@@ -5,8 +5,8 @@
 //  Created by s s on 2025/3/15.
 //
 import SwiftUI
-import StosSign
-import KeychainAccess
+import StosSign_API_NoCertificate
+import StosSign_Auth
 
 class LoginViewModel: ObservableObject {
     @Published var appleID = ""
@@ -55,23 +55,11 @@ class LoginViewModel: ObservableObject {
         
         let anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
         
-        let (account, session) = try await withUnsafeThrowingContinuation { (c : UnsafeContinuation<(Account, AppleAPISession), Error>) in
-            AppleAPI().authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [self] (completionHandler) in
-                verificationCodeHandler = completionHandler
-                Task{ await MainActor.run {
-                    needVerificationCode = true
-                }}
-            } completionHandler: { account, session, error in
-                if let error {
-                    c.resume(throwing: error)
-                    return
-                }
-                if let account, let session {
-                    c.resume(returning: (account, session))
-                } else {
-                    c.resume(throwing: "Account or session is nil. Please try again or reopen the app.")
-                }
-            }
+        let (account, session) = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [self] (completionHandler) in
+            verificationCodeHandler = completionHandler
+            Task{ await MainActor.run {
+                needVerificationCode = true
+            }}
         }
         logging(text: "Successfully signed in")
         
@@ -94,16 +82,8 @@ class LoginViewModel: ObservableObject {
     func fetchTeam(for account: Account, session: AppleAPISession) async throws -> Team
     {
 
-        let fetchedTeams = try await withUnsafeThrowingContinuation { (c: UnsafeContinuation<[Team]?, Error>) in
-            AppleAPI().fetchTeamsForAccount(account: account, session: session) { (teams, error) in
-                if let error {
-                    c.resume(throwing: error)
-                    return
-                }
-                c.resume(returning: teams)
-            }
-        }
-        guard let fetchedTeams, !fetchedTeams.isEmpty, let team = fetchedTeams.first else {
+        let fetchedTeams = try await AppleAPI.shared.fetchTeamsForAccount(account: account, session: session)
+        guard !fetchedTeams.isEmpty, let team = fetchedTeams.first else {
             throw "Unable to Fetch Team!"
         }
         

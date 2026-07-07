@@ -5,7 +5,8 @@
 //  Created by s s on 2025/3/15.
 //
 import SwiftUI
-import StosSign
+import StosSign_API_NoCertificate
+import StosSign_Auth
 
 class AppIDModel : ObservableObject, Hashable {
     static func == (lhs: AppIDModel, rhs: AppIDModel) -> Bool {
@@ -75,7 +76,7 @@ class AppIDViewModel : ObservableObject {
         }
         
         let ids = try await withUnsafeThrowingContinuation { (c: UnsafeContinuation<[AppID], Error>) in
-            AppleAPI().fetchAppIDsForTeam(team: team, session: session) { (appIDs, error) in
+            AppleAPI.shared.fetchAppIDsForTeam(team: team, session: session) { (appIDs, error) in
                 if let error = appIDs as? Error {
                     c.resume(throwing: error)
                 }

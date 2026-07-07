@@ -1,48 +1,39 @@
 {
-  "originHash" : "e552e6289f39bb6d56242374236e8e45c5ecb2253ad16daa11803a794310ff04",
+  "originHash" : "1a80be29def0451f8996685d7fb5bcf2468fdd459b98f36d3efd116626c14773",
   "pins" : [
     {
-      "identity" : "corecrypto-spm",
+      "identity" : "big-num",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stossy11/CoreCrypto-SPM",
+      "location" : "https://github.com/adam-fowler/big-num",
       "state" : {
-        "branch" : "master",
-        "revision" : "32afe5672e5a1bb8cdaf8d46f6558af91c9dc197"
+        "revision" : "9059dcab8dd001b8143bc512b4477d079e97957f",
+        "version" : "2.0.3"
       }
     },
     {
-      "identity" : "keychainaccess",
+      "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kishikawakatsumi/KeychainAccess",
+      "location" : "https://github.com/krzyzanowskim/CryptoSwift",
       "state" : {
-        "branch" : "master",
-        "revision" : "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf"
+        "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
+        "version" : "1.9.0"
       }
     },
     {
-      "identity" : "starscream",
+      "identity" : "swift-crypto",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/daltoniam/Starscream",
+      "location" : "https://github.com/apple/swift-crypto",
       "state" : {
-        "revision" : "c6bfd1af48efcc9a9ad203665db12375ba6b145a",
-        "version" : "4.0.8"
+        "revision" : "476538ccb827f2dd18efc5de754cc87d77127a47",
+        "version" : "4.4.0"
       }
     },
     {
-      "identity" : "stossign",
+      "identity" : "swift-srp",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stossy11/StosSign.git",
+      "location" : "https://github.com/adam-fowler/swift-srp.git",
       "state" : {
-        "revision" : "70a80bdd2b570020e917ec4a6fb79a8cf4ba1100"
-      }
-    },
-    {
-      "identity" : "zsign-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/zwsn/zsign-ios.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "a7f275fb4830ea48adf536fcddee7d05471970d0"
+        "revision" : "ce202c48f8ca68f44b71732f945eb8221d6fe135"
       }
     }
   ],

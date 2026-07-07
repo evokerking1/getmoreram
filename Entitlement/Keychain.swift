@@ -7,9 +7,7 @@
 //
 
 import Foundation
-import KeychainAccess
-
-import StosSign
+import Security
 
 @propertyWrapper
 public struct KeychainItem<Value>
@@ -20,16 +18,16 @@ public struct KeychainItem<Value>
         get {
             switch Value.self
             {
-            case is Data.Type: return try? Keychain.shared.keychain.getData(self.key) as? Value
-            case is String.Type: return try? Keychain.shared.keychain.getString(self.key) as? Value
+            case is Data.Type: return Keychain.shared.keychain.data(for: self.key) as? Value
+            case is String.Type: return Keychain.shared.keychain.string(for: self.key) as? Value
             default: return nil
             }
         }
         set {
             switch Value.self
             {
-            case is Data.Type: Keychain.shared.keychain[data: self.key] = newValue as? Data
-            case is String.Type: Keychain.shared.keychain[self.key] = newValue as? String
+            case is Data.Type: Keychain.shared.keychain.set(newValue as? Data, for: self.key)
+            case is String.Type: Keychain.shared.keychain.set(newValue as? String, for: self.key)
             default: break
             }
         }
@@ -45,7 +43,7 @@ public class Keychain
 {
     public static let shared = Keychain()
     
-    fileprivate let keychain = KeychainAccess.Keychain(service: Bundle.main.bundleIdentifier!).accessibility(.afterFirstUnlock).synchronizable(true)
+    fileprivate let keychain = SystemKeychain(service: Bundle.main.bundleIdentifier!)
     
     @KeychainItem(key: "appleIDEmailAddress")
     public var appleIDEmailAddress: String?
@@ -93,5 +91,55 @@ public class Keychain
         self.appleIDPassword = nil
         self.signingCertificatePrivateKey = nil
         self.signingCertificateSerialNumber = nil
+    }
+}
+
+fileprivate struct SystemKeychain {
+    let service: String
+    
+    func data(for key: String) -> Data? {
+        var query = baseQuery(for: key)
+        query[kSecReturnData as String] = kCFBooleanTrue
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+    
+    func string(for key: String) -> String? {
+        guard let data = data(for: key) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+    
+    func set(_ string: String?, for key: String) {
+        set(string?.data(using: .utf8), for: key)
+    }
+    
+    func set(_ data: Data?, for key: String) {
+        deleteItem(for: key)
+        
+        guard let data else { return }
+        
+        var attributes = baseQuery(for: key)
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        attributes[kSecValueData as String] = data
+        SecItemAdd(attributes as CFDictionary, nil)
+    }
+    
+    private func deleteItem(for key: String) {
+        var query = baseQuery(for: key)
+        query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        SecItemDelete(query as CFDictionary)
+    }
+    
+    private func baseQuery(for key: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecAttrSynchronizable as String: kCFBooleanTrue as Any
+        ]
     }
 }
