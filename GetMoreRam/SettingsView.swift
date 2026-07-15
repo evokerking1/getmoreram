@@ -89,7 +89,9 @@ struct SettingsView: View {
             importSideStoreAccount(result)
         }
         
-        .sheet(isPresented: $viewModel.loginModalShow) {
+        .sheet(isPresented: $viewModel.loginModalShow, onDismiss: {
+            viewModel.cancelAuthentication()
+        }) {
             loginModal
         }
         .sheet(isPresented: $viewModel.teamSelectionShow) {
@@ -118,6 +120,7 @@ struct SettingsView: View {
                 if viewModel.needVerificationCode {
                     Section {
                         TextField("", text: $viewModel.verificationCode)
+                            .disabled(viewModel.isVerificationCodeSubmitting)
                     } header: {
                         Text("Verification Code")
                     }
@@ -126,6 +129,7 @@ struct SettingsView: View {
                     Button("Continue") {
                         Task{ await loginButtonClicked() }
                     }
+                    .disabled(continueButtonDisabled)
                 }
                 
                 Section {
@@ -140,6 +144,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel", role: .cancel) {
+                        viewModel.cancelAuthentication()
                         viewModel.loginModalShow = false
                     }
                 }
@@ -185,7 +190,7 @@ struct SettingsView: View {
     func loginButtonClicked() async {
         do {
             if viewModel.needVerificationCode {
-                viewModel.submitVerficationCode()
+                viewModel.submitVerificationCode()
                 return
             }
             
@@ -196,16 +201,35 @@ struct SettingsView: View {
                     email = sharedModel.account!.appleID
                     teamId = ""
                 }
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                await MainActor.run {
-                    viewModel.teamSelectionShow = true
+
+                if viewModel.availableTeams.count == 1,
+                   let team = viewModel.availableTeams.first {
+                    await MainActor.run {
+                        selectTeam(team)
+                    }
+                } else {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    await MainActor.run {
+                        viewModel.teamSelectionShow = true
+                    }
                 }
             }
             
+        } catch is CancellationError {
+            return
         } catch {
             errorInfo = error.detailedDescription
             errorShow = true
         }
+    }
+
+    private var continueButtonDisabled: Bool {
+        if viewModel.needVerificationCode {
+            return viewModel.isVerificationCodeSubmitting ||
+                viewModel.verificationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        return viewModel.isLoginInProgress
     }
     
     func cleanUp() {

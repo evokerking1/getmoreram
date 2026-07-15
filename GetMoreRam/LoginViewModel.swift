@@ -8,6 +8,7 @@ import SwiftUI
 import StosSign_API_NoCertificate
 import StosSign_Auth
 
+@MainActor
 class LoginViewModel: ObservableObject {
     @Published var appleID = ""
     @Published var password = ""
@@ -16,15 +17,34 @@ class LoginViewModel: ObservableObject {
     @Published var loginModalShow = false
     @Published var teamSelectionShow = false
     @Published var isLoginInProgress = false
+    @Published private(set) var isVerificationCodeSubmitting = false
     @Published var logs = ""
     @Published var availableTeams: [Team] = []
     
     private var verificationCodeHandler: ((String?) -> Void)?
+    private var isAuthenticationCancellationRequested = false
     
-    func submitVerficationCode() {
-        if let verificationCodeHandler {
-            verificationCodeHandler(verificationCode)
-        }
+    func submitVerificationCode() {
+        guard !isVerificationCodeSubmitting,
+              let verificationCodeHandler else { return }
+
+        self.verificationCodeHandler = nil
+        isVerificationCodeSubmitting = true
+        verificationCodeHandler(verificationCode)
+    }
+
+    func cancelAuthentication() {
+        guard isLoginInProgress else { return }
+
+        isAuthenticationCancellationRequested = true
+
+        let verificationCodeHandler = verificationCodeHandler
+        self.verificationCodeHandler = nil
+        needVerificationCode = false
+        verificationCode = ""
+        isVerificationCodeSubmitting = false
+
+        verificationCodeHandler?(nil)
     }
     
     func authenticate() async throws -> Bool {
@@ -32,51 +52,75 @@ class LoginViewModel: ObservableObject {
             return false
         }
         
-        await MainActor.run {
-            logs = ""
-            isLoginInProgress = true
-        }
+        logs = ""
+        isLoginInProgress = true
+        isAuthenticationCancellationRequested = false
         
         func logging(text: String) {
-            Task { await MainActor.run {
-                self.logs.append("\(text)\n")
-            }}
+            Task { @MainActor [weak self] in
+                self?.logs.append("\(text)\n")
+            }
         }
         
         AnisetteDataHelper.shared.loggingFunc = logging
 
         defer {
-            Task{ await MainActor.run {
-                self.appleID = ""
-                self.password = ""
-                needVerificationCode = false
-                verificationCode = ""
-                isLoginInProgress = false
-            }}
+            verificationCodeHandler = nil
+            appleID = ""
+            password = ""
+            needVerificationCode = false
+            verificationCode = ""
+            isLoginInProgress = false
+            isVerificationCodeSubmitting = false
+            isAuthenticationCancellationRequested = false
         }
-        
-        let anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
-        
-        let (account, session) = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [self] (completionHandler) in
-            verificationCodeHandler = completionHandler
-            Task{ await MainActor.run {
-                needVerificationCode = true
-            }}
-        }
-        logging(text: "Successfully signed in")
-        
-        DataManager.shared.model.account = account
-        DataManager.shared.model.session = session
-        Keychain.shared.appleIDEmailAddress = self.appleID
-        Keychain.shared.appleIDPassword = self.password
-        
-        let teams = try await fetchTeams(for: account, session: session)
-        logging(text: "Successfully fetched teams")
-        await MainActor.run {
+
+        do {
+            let anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
+
+            let (account, session) = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [weak self] completionHandler in
+                guard let self else {
+                    completionHandler(nil)
+                    return
+                }
+
+                self.prepareForVerification(using: completionHandler)
+            }
+
+            guard !isAuthenticationCancellationRequested else {
+                throw CancellationError()
+            }
+
+            logging(text: "Successfully signed in")
+
+            DataManager.shared.model.account = account
+            DataManager.shared.model.session = session
+            Keychain.shared.appleIDEmailAddress = appleID
+            Keychain.shared.appleIDPassword = password
+
+            let teams = try await fetchTeams(for: account, session: session)
+            logging(text: "Successfully fetched teams")
             availableTeams = teams
+
+            return true
+        } catch {
+            if isAuthenticationCancellationRequested {
+                throw CancellationError()
+            }
+            throw error
         }
-        
-        return true
+    }
+
+    private func prepareForVerification(using handler: @escaping (String?) -> Void) {
+        guard !isAuthenticationCancellationRequested else {
+            handler(nil)
+            return
+        }
+
+        verificationCodeHandler = handler
+        verificationCode = ""
+        needVerificationCode = true
+        isVerificationCodeSubmitting = false
     }
     
     func fetchTeams(for account: Account, session: AppleAPISession) async throws -> [Team]
